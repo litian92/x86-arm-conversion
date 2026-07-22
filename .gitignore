@@ -1,0 +1,6 @@
+ci-output/
+build/
+__pycache__/
+*.pyc
+.venv/
+compile_commands.json
