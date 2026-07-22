@@ -8,7 +8,9 @@ GitHub Actions workflow that runs [Arm MCP Server](https://developer.arm.com/ser
 | --- | --- |
 | **Detect project** | Finds languages, Dockerfiles, and container base images |
 | **ARM MCP analysis** | Runs Arm MCP tools via `armlimited/arm-mcp` Docker image |
-| **Post PR feedback** | Updates a single PR comment with migration and optimization guidance |
+| **Post PR feedback** | Summary comment plus inline review suggestions with **Apply suggestion** buttons |
+
+Inline suggestions use GitHub's ` ```suggestion ` blocks on the PR diff so reviewers can apply fixes from the **Files changed** tab.
 
 ### Arm MCP tools used
 

@@ -16,6 +16,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from arm_mcp_client import arm_mcp_session, call_tool, get_tool_names
+from migrate_ease_parse import format_finding, iter_issues_from_scan
+from suggestion_builder import build_inline_suggestions
 
 OUTPUT_DIR = Path(os.environ.get("CI_OUTPUT_DIR", "ci-output"))
 WORKSPACE = os.environ.get("WORKSPACE", os.getcwd())
@@ -53,64 +55,12 @@ def _finding_count(scan_result: dict[str, Any]) -> int:
     return 0
 
 
-def _format_finding(item: Any) -> str:
-    if not isinstance(item, dict):
-        return str(item)[:240]
-
-    issue_type = item.get("issue_type")
-    type_label = ""
-    if isinstance(issue_type, dict):
-        type_label = str(issue_type.get("type") or issue_type.get("des") or "")
-    elif issue_type:
-        type_label = str(issue_type)
-
-    filename = str(
-        item.get("filename") or item.get("file") or item.get("path") or ""
-    ).strip()
-    for prefix in ("/workspace/", WORKSPACE.rstrip("/") + "/"):
-        if filename.startswith(prefix):
-            filename = filename[len(prefix) :]
-            break
-    lineno = item.get("lineno") or item.get("line")
-    line_text = f":{lineno}" if lineno not in (None, "") else ""
-    description = str(
-        item.get("description")
-        or item.get("message")
-        or item.get("rule")
-        or type_label
-        or ""
-    ).strip()
-
-    location = f"`{filename}{line_text}`" if filename else (f"line {lineno}" if lineno else "")
-    if location and description:
-        return f"{location} — {description}"
-    if location:
-        return location
-    if description:
-        return description
-    if type_label:
-        return type_label
-    return json.dumps(item)[:240]
-
-
-def _iter_findings(parsed: Any) -> list[Any]:
-    if isinstance(parsed, list):
-        return parsed
-    if isinstance(parsed, dict):
-        for key in ("issues", "findings", "results", "matches"):
-            value = parsed.get(key)
-            if isinstance(value, list):
-                return value
-    return []
-
-
 def _extract_finding_summaries(scan_result: dict[str, Any], limit: int = 10) -> list[str]:
-    parsed = scan_result.get("parsed_results")
     summaries: list[str] = []
-    for item in _iter_findings(parsed):
+    for item in iter_issues_from_scan(scan_result):
         if len(summaries) >= limit:
             break
-        summaries.append(_format_finding(item))
+        summaries.append(format_finding(item))
     return summaries
 
 
@@ -213,6 +163,7 @@ async def run_analysis() -> dict[str, Any]:
                 report["errors"].append(f"knowledge_base_search({query}): {exc}")
 
     report["optimization_suggestions"] = _build_optimization_suggestions(report)
+    report["inline_suggestions"] = build_inline_suggestions(report, Path(WORKSPACE))
     return report
 
 
@@ -310,6 +261,17 @@ def _render_markdown(report: dict[str, Any]) -> str:
             preview = json.dumps(result, default=str)[:400]
             lines.append(f"- `{path}`: {preview}")
         lines.append("")
+
+    if report.get("inline_suggestions"):
+        lines.extend(
+            [
+                "### Apply-able inline suggestions",
+                "",
+                f"{len(report['inline_suggestions'])} suggestion(s) will be posted on the PR diff "
+                "with GitHub **Apply suggestion** buttons.",
+                "",
+            ]
+        )
 
     if report.get("optimization_suggestions"):
         lines.extend(["### Performance optimization suggestions", ""])
