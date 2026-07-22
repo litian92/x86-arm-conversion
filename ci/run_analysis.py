@@ -22,7 +22,7 @@ WORKSPACE = os.environ.get("WORKSPACE", os.getcwd())
 LANGUAGES = json.loads(os.environ.get("LANGUAGES", "[]"))
 DOCKER_IMAGES = json.loads(os.environ.get("DOCKER_IMAGES", "[]"))
 
-OBJECT_SUFFIXES = {".s", ".S", ".o", ".obj"}
+OBJECT_SUFFIXES = {".s", ".S"}
 OPTIMIZATION_QUERIES = [
     "Arm64 performance optimization best practices",
     "x86 to Arm64 intrinsic migration",
@@ -37,6 +37,12 @@ def _ensure_output_dir() -> None:
 def _finding_count(scan_result: dict[str, Any]) -> int:
     parsed = scan_result.get("parsed_results")
     if isinstance(parsed, dict):
+        total = parsed.get("total_issue_count")
+        if isinstance(total, int):
+            return total
+        issues = parsed.get("issues")
+        if isinstance(issues, list):
+            return len(issues)
         for key in ("findings", "issues", "results", "matches"):
             value = parsed.get(key)
             if isinstance(value, list):
@@ -47,36 +53,64 @@ def _finding_count(scan_result: dict[str, Any]) -> int:
     return 0
 
 
+def _format_finding(item: Any) -> str:
+    if not isinstance(item, dict):
+        return str(item)[:240]
+
+    issue_type = item.get("issue_type")
+    type_label = ""
+    if isinstance(issue_type, dict):
+        type_label = str(issue_type.get("type") or issue_type.get("des") or "")
+    elif issue_type:
+        type_label = str(issue_type)
+
+    filename = str(
+        item.get("filename") or item.get("file") or item.get("path") or ""
+    ).strip()
+    for prefix in ("/workspace/", WORKSPACE.rstrip("/") + "/"):
+        if filename.startswith(prefix):
+            filename = filename[len(prefix) :]
+            break
+    lineno = item.get("lineno") or item.get("line")
+    line_text = f":{lineno}" if lineno not in (None, "") else ""
+    description = str(
+        item.get("description")
+        or item.get("message")
+        or item.get("rule")
+        or type_label
+        or ""
+    ).strip()
+
+    location = f"`{filename}{line_text}`" if filename else (f"line {lineno}" if lineno else "")
+    if location and description:
+        return f"{location} — {description}"
+    if location:
+        return location
+    if description:
+        return description
+    if type_label:
+        return type_label
+    return json.dumps(item)[:240]
+
+
+def _iter_findings(parsed: Any) -> list[Any]:
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ("issues", "findings", "results", "matches"):
+            value = parsed.get(key)
+            if isinstance(value, list):
+                return value
+    return []
+
+
 def _extract_finding_summaries(scan_result: dict[str, Any], limit: int = 10) -> list[str]:
     parsed = scan_result.get("parsed_results")
     summaries: list[str] = []
-
-    def add_item(item: Any) -> None:
+    for item in _iter_findings(parsed):
         if len(summaries) >= limit:
-            return
-        if isinstance(item, dict):
-            parts = [
-                str(item.get("file") or item.get("path") or ""),
-                str(item.get("line") or item.get("lineno") or ""),
-                str(item.get("message") or item.get("description") or item.get("rule") or ""),
-            ]
-            text = " | ".join(part for part in parts if part)
-            summaries.append(text or json.dumps(item)[:240])
-        else:
-            summaries.append(str(item)[:240])
-
-    if isinstance(parsed, list):
-        for item in parsed:
-            add_item(item)
-    elif isinstance(parsed, dict):
-        for key in ("findings", "issues", "results", "matches"):
-            value = parsed.get(key)
-            if isinstance(value, list):
-                for item in value:
-                    add_item(item)
-                break
-        else:
-            add_item(parsed)
+            break
+        summaries.append(_format_finding(item))
     return summaries
 
 
@@ -152,7 +186,12 @@ async def run_analysis() -> dict[str, Any]:
                     "mca",
                     {
                         "input_path": container_path,
-                        "triple": "aarch64-linux-gnu",
+                        # Arm MCP maps triple/cpu to unsupported --triple/--mcpu flags.
+                        # llvm-mca expects -mtriple= and -mcpu= via extra_args.
+                        "extra_args": [
+                            "-mtriple=aarch64-linux-gnu",
+                            "-mcpu=generic",
+                        ],
                         "invocation_reason": "CI assembly performance analysis for Arm64",
                     },
                 )
@@ -189,7 +228,7 @@ def _build_optimization_suggestions(report: dict[str, Any]) -> list[str]:
                 f"Address {count} migrate-ease finding(s) in {language} code before expecting optimal Arm64 performance."
             )
             for summary in _extract_finding_summaries(scan, limit=5):
-                suggestions.append(f"- {language}: {summary}")
+                suggestions.append(f"{language}: {summary}")
 
     for image, checks in report.get("docker_checks", {}).items():
         check_image = checks.get("check_image") if isinstance(checks, dict) else None
@@ -206,7 +245,7 @@ def _build_optimization_suggestions(report: dict[str, Any]) -> list[str]:
         )
     else:
         suggestions.append(
-            "Build with debug symbols and re-run CI to enable LLVM-MCA (`mca` tool) on object files for deeper performance insights."
+            "Add assembly (.s) files or build with `-S` to enable LLVM-MCA analysis on hot paths."
         )
 
     for entry in report.get("knowledge_base", []):
