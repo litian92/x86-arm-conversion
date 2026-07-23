@@ -9,6 +9,8 @@ GitHub Actions workflow that runs [Arm MCP Server](https://developer.arm.com/ser
 | **Detect project** | Finds languages, Dockerfiles, and container base images |
 | **ARM MCP analysis** | Runs Arm MCP tools via `armlimited/arm-mcp` Docker image |
 | **Post PR feedback** | Updates a single PR comment with migration and optimization guidance |
+| **ARM MCP AI analysis** _(optional)_ | LLM-driven tool orchestration when PR has the `arm-mcp-ai` label |
+| **Post AI feedback** _(optional)_ | Posts a separate AI analysis comment on the PR |
 
 ### Arm MCP tools used
 
@@ -80,6 +82,8 @@ python ci/detect_project.py --json
 
 ### Run Arm MCP analysis (requires Docker)
 
+**Scripted mode** (deterministic, no API key):
+
 ```bash
 docker pull armlimited/arm-mcp:latest
 export LANGUAGES='["cpp"]'
@@ -88,10 +92,47 @@ python ci/run_analysis.py
 cat ci-output/report.md
 ```
 
+**AI mode** (LLM selects and chains MCP tools dynamically):
+
+```bash
+cp .arm-mcp-ai.yaml.example .arm-mcp-ai.yaml
+# Edit provider, model, and api_key_env
+
+export OPENAI_API_KEY=sk-...
+export LANGUAGES='["cpp"]'
+export DOCKER_IMAGES='["debian:bookworm-slim"]'
+python ci/ai_analysis.py
+cat ci-output/report.md
+```
+
+AI mode works with any OpenAI-compatible API (OpenAI, Azure, Ollama, custom endpoints) or Anthropic Claude. Configure via `.arm-mcp-ai.yaml` or environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `ARM_MCP_AI_PROVIDER` | `openai`, `openai_compat`, `ollama`, `custom`, `anthropic`, `claude` |
+| `ARM_MCP_AI_MODEL` | Model name (e.g. `gpt-4o`, `claude-sonnet-4-20250514`) |
+| `ARM_MCP_AI_BASE_URL` | Override API base URL for custom/OpenAI-compatible endpoints |
+| `ARM_MCP_AI_API_KEY_ENV` | Env var name holding the API key (default: provider-specific) |
+| `ARM_MCP_AI_MAX_ITERATIONS` | Max tool-use loop iterations (default: 20) |
+
+As Arm MCP adds new tools, AI mode discovers them automatically via `list_tools` — no script changes required.
+
+### AI mode in GitHub Actions (label-triggered)
+
+The workflow runs scripted analysis on every PR. **AI analysis is optional** — add the `arm-mcp-ai` label to a pull request to enable it.
+
+1. Add a repository secret: `OPENAI_API_KEY`, `ARM_MCP_AI_API_KEY`, or `ANTHROPIC_API_KEY`
+2. (Optional) Set repository variables `ARM_MCP_AI_PROVIDER` and `ARM_MCP_AI_MODEL` to override defaults (`openai` / `gpt-4o`)
+3. (Optional) Commit `.arm-mcp-ai.yaml` for provider-specific settings (custom base URL, task prompt, etc.)
+4. Add the **`arm-mcp-ai`** label to the PR
+
+The workflow posts two separate PR comments: the standard scripted report and an **Arm MCP AI Analysis Report**. Re-running happens on new commits (`synchronize`) while the label remains, or when the label is first added (`labeled`).
+
 ## Requirements
 
 - **Docker** on the analysis job runner (provided on `ubuntu-latest` GitHub-hosted runners)
-- **`armlimited/arm-mcp`** image pulled at runtime (no API keys required for core tools)
+- **`armlimited/arm-mcp`** image pulled at runtime (no API keys required for scripted mode)
+- **LLM API key** required only for AI mode (`ci/ai_analysis.py`)
 
 ## Optional: Arm Performix profiling
 

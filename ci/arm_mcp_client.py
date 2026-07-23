@@ -69,3 +69,18 @@ async def call_tool(
 async def get_tool_names(session: ClientSession) -> list[str]:
     tools = await session.list_tools()
     return [tool.name for tool in tools.tools]
+
+
+async def get_tool_schemas(session: ClientSession) -> list[dict[str, Any]]:
+    """Return MCP tool definitions as JSON-serializable dicts for LLM providers."""
+    tools = await session.list_tools()
+    schemas: list[dict[str, Any]] = []
+    for tool in tools.tools:
+        entry: dict[str, Any] = {
+            "name": tool.name,
+            "description": tool.description or "",
+        }
+        if tool.inputSchema:
+            entry["inputSchema"] = tool.inputSchema
+        schemas.append(entry)
+    return schemas

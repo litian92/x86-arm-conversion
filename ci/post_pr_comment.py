@@ -11,8 +11,9 @@ import urllib.request
 from pathlib import Path
 
 OUTPUT_DIR = Path(os.environ.get("CI_OUTPUT_DIR", "ci-output"))
-MARKER = "<!-- arm-mcp-ci -->"
-COMMENT_TITLE = "## Arm MCP Analysis Report"
+MARKER = os.environ.get("ARM_MCP_COMMENT_MARKER", "<!-- arm-mcp-ci -->")
+COMMENT_TITLE = os.environ.get("ARM_MCP_COMMENT_TITLE", "## Arm MCP Analysis Report")
+AI_MODE = os.environ.get("ARM_MCP_AI_MODE", "").lower() in ("1", "true", "yes")
 
 
 def _read_text(path: Path) -> str:
@@ -57,6 +58,7 @@ def _compose_comment() -> str:
     analysis_md = _read_text(OUTPUT_DIR / "report.md")
     report = _load_report()
     suggestion_count = len(report.get("optimization_suggestions", []))
+    tool_call_count = len(report.get("tool_invocations", []))
     analysis_result = os.environ.get("ANALYSIS_RESULT", "unknown")
 
     if analysis_result == "success" and not report.get("errors"):
@@ -77,22 +79,30 @@ def _compose_comment() -> str:
     if analysis_md:
         sections.extend([analysis_md, ""])
     else:
+        failure_job = "arm-mcp-ai-analysis" if AI_MODE else "arm-mcp-analysis"
         sections.extend(
             [
                 "### Arm MCP analysis",
                 "",
-                "Analysis report was not generated. Check the `arm-mcp-analysis` job logs.",
+                f"Analysis report was not generated. Check the `{failure_job}` job logs.",
                 "",
             ]
         )
 
-    sections.extend(
-        [
-            "---",
-            f"_Powered by [Arm MCP Server](https://developer.arm.com/servers-and-cloud-computing/arm-mcp-server) (`armlimited/arm-mcp`). "
-            f"{suggestion_count} optimization suggestion(s) included._",
-        ]
-    )
+    if AI_MODE:
+        provider = report.get("llm_provider") or "unknown"
+        model = report.get("llm_model") or "unknown"
+        footer = (
+            f"_AI-driven analysis via [Arm MCP Server](https://developer.arm.com/servers-and-cloud-computing/arm-mcp-server) "
+            f"({provider}/{model}, {tool_call_count} tool call(s))._"
+        )
+    else:
+        footer = (
+            f"_Powered by [Arm MCP Server](https://developer.arm.com/servers-and-cloud-computing/arm-mcp-server) "
+            f"(`armlimited/arm-mcp`). {suggestion_count} optimization suggestion(s) included._"
+        )
+
+    sections.extend(["---", footer])
     return "\n".join(sections)
 
 

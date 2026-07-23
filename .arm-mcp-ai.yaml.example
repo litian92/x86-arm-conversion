@@ -1,0 +1,20 @@
+# AI-driven analysis configuration (optional).
+# Copy to .arm-mcp-ai.yaml and customize.
+
+llm:
+  # Provider: openai | openai_compat | ollama | custom | anthropic | claude
+  provider: openai
+  model: gpt-4o
+  # Read API key from this environment variable (recommended for CI secrets)
+  api_key_env: OPENAI_API_KEY
+  # Override for Azure, Ollama, or any OpenAI-compatible endpoint:
+  # base_url: http://localhost:11434/v1
+  # Optional extra headers for custom APIs:
+  # headers:
+  #   X-Custom-Header: value
+  max_iterations: 20
+  temperature: 0.2
+
+# Optional: override the default analysis task prompt
+# task: |
+#   Analyze this repo for Arm64 migration...

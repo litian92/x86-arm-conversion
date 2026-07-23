@@ -2,10 +2,13 @@ name: ARM MCP Analysis CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, master]
   workflow_dispatch:
+
+# Optional AI analysis: add the `arm-mcp-ai` label to a pull request.
+# Requires OPENAI_API_KEY or ARM_MCP_AI_API_KEY repository secret.
 
 permissions:
   contents: read
@@ -106,4 +109,97 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           ANALYSIS_RESULT: ${{ needs.arm-mcp-analysis.result }}
+        run: python ci/post_pr_comment.py
+
+  arm-mcp-ai-analysis:
+    name: ARM MCP AI analysis
+    needs: detect
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'arm-mcp-ai')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ci/requirements.txt
+
+      - name: Install CI dependencies
+        run: pip install -r ci/requirements.txt
+
+      - name: Verify AI API credentials
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ARM_MCP_AI_API_KEY: ${{ secrets.ARM_MCP_AI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ] && [ -z "$ARM_MCP_AI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::AI analysis requires a repository secret: OPENAI_API_KEY, ARM_MCP_AI_API_KEY, or ANTHROPIC_API_KEY"
+            exit 1
+          fi
+
+      - name: Pull ARM MCP server image
+        run: docker pull "$ARM_MCP_IMAGE"
+
+      - name: Run ARM MCP AI analysis
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          LANGUAGES: ${{ needs.detect.outputs.languages }}
+          DOCKER_IMAGES: ${{ needs.detect.outputs.docker_images }}
+          CI_OUTPUT_DIR: ci-output-ai
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ARM_MCP_AI_API_KEY: ${{ secrets.ARM_MCP_AI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ARM_MCP_AI_PROVIDER: ${{ vars.ARM_MCP_AI_PROVIDER || 'openai' }}
+          ARM_MCP_AI_MODEL: ${{ vars.ARM_MCP_AI_MODEL || 'gpt-4o' }}
+        run: python ci/ai_analysis.py
+        timeout-minutes: 45
+
+      - name: Upload AI analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-mcp-ai-report
+          path: ci-output-ai/
+          retention-days: 7
+
+  report-ai:
+    name: Post AI analysis feedback
+    needs: [arm-mcp-ai-analysis]
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      needs.arm-mcp-ai-analysis.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm-mcp-ai-report
+          path: ci-output-ai
+          continue-on-error: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ci/requirements.txt
+
+      - name: Install CI dependencies
+        run: pip install -r ci/requirements.txt
+
+      - name: Generate and post AI report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ANALYSIS_RESULT: ${{ needs.arm-mcp-ai-analysis.result }}
+          CI_OUTPUT_DIR: ci-output-ai
+          ARM_MCP_AI_MODE: "true"
+          ARM_MCP_COMMENT_MARKER: "<!-- arm-mcp-ci-ai -->"
+          ARM_MCP_COMMENT_TITLE: "## Arm MCP AI Analysis Report"
         run: python ci/post_pr_comment.py
