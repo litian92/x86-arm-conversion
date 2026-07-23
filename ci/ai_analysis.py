@@ -93,7 +93,7 @@ async def run_ai_analysis() -> dict[str, Any]:
         result = await run_agent(
             session,
             provider,
-            task=config["task"],
+            prompt=config["prompt"],
             context=report["context"],
             max_iterations=max_iterations,
             provider_name=provider_name,

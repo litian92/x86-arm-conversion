@@ -14,22 +14,6 @@ from llm.base import LLMProvider, Message
 from llm.schema import mcp_to_anthropic_tools, mcp_to_openai_tools
 
 
-SYSTEM_PROMPT = """You are an expert Arm64 migration and performance analyst with access to Arm MCP Server tools.
-
-Your job is to analyze codebases for x86 to Arm64 migration readiness and recommend optimizations.
-
-Guidelines:
-- Call list_tools implicitly via the schemas provided; use only the tools available to you.
-- Always pass invocation_reason in every tool call (Arm MCP audit requirement).
-- Workspace files are mounted at /workspace/ inside the MCP container.
-- Prefer migrate_ease_scan with arch=armv8-a and output_format=json for code scans.
-- For container images, use both check_image and skopeo when checking arm64 support.
-- Use knowledge_base_search for Arm documentation and optimization guidance.
-- Use mca on assembly (.s, .S) files for performance analysis; pass extra_args like ["-mtriple=aarch64-linux-gnu", "-mcpu=generic"].
-- Chain tools as needed: scan first, then dig deeper based on findings.
-- When you have gathered enough data, respond with a final structured summary (no more tool calls)."""
-
-
 @dataclass
 class AgentResult:
     summary: str
@@ -56,7 +40,7 @@ async def run_agent(
     session: ClientSession,
     provider: LLMProvider,
     *,
-    task: str,
+    prompt: str,
     context: dict[str, Any] | None = None,
     max_iterations: int = 20,
     provider_name: str = "openai",
@@ -70,8 +54,8 @@ async def run_agent(
         context_block = f"\n\nProject context:\n```json\n{json.dumps(context, indent=2)}\n```"
 
     messages: list[Message] = [
-        Message(role="system", content=SYSTEM_PROMPT),
-        Message(role="user", content=f"{task}{context_block}"),
+        Message(role="system", content=prompt),
+        Message(role="user", content=f"Analyze this repository.{context_block}"),
     ]
 
     tool_invocations: list[dict[str, Any]] = []

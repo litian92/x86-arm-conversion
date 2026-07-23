@@ -114,6 +114,9 @@ AI mode works with any OpenAI-compatible API (OpenAI, Azure, Ollama, custom endp
 | `ARM_MCP_AI_BASE_URL` | Override API base URL for custom/OpenAI-compatible endpoints |
 | `ARM_MCP_AI_API_KEY_ENV` | Env var name holding the API key (default: provider-specific) |
 | `ARM_MCP_AI_MAX_ITERATIONS` | Max tool-use loop iterations (default: 20) |
+| `ARM_MCP_AI_PROMPT_PATH` | Override agent prompt file (default: `.github/agents/arm-migration.agent.md`) |
+
+The agent prompt lives in [`.github/agents/arm-migration.agent.md`](.github/agents/arm-migration.agent.md). Edit that file to tune migration steps, tool usage rules, and output format — both local AI mode and the label-triggered CI job read from it.
 
 As Arm MCP adds new tools, AI mode discovers them automatically via `list_tools` — no script changes required.
 
@@ -123,8 +126,9 @@ The workflow runs scripted analysis on every PR. **AI analysis is optional** —
 
 1. Add a repository secret: `OPENAI_API_KEY`, `ARM_MCP_AI_API_KEY`, or `ANTHROPIC_API_KEY`
 2. (Optional) Set repository variables `ARM_MCP_AI_PROVIDER` and `ARM_MCP_AI_MODEL` to override defaults (`openai` / `gpt-4o`)
-3. (Optional) Commit `.arm-mcp-ai.yaml` for provider-specific settings (custom base URL, task prompt, etc.)
-4. Add the **`arm-mcp-ai`** label to the PR
+3. (Optional) Commit `.arm-mcp-ai.yaml` for provider-specific settings (custom base URL, model, etc.)
+4. Tune the agent prompt in `.github/agents/arm-migration.agent.md`
+5. Add the **`arm-mcp-ai`** label to the PR
 
 The workflow posts two separate PR comments: the standard scripted report and an **Arm MCP AI Analysis Report**. Re-running happens on new commits (`synchronize`) while the label remains, or when the label is first added (`labeled`).
 
