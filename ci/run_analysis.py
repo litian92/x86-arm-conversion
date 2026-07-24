@@ -223,27 +223,11 @@ def _build_optimization_suggestions(report: dict[str, Any]) -> list[str]:
             suggestions.append(
                 f"Address {count} migrate-ease finding(s) in {language} code before expecting optimal Arm64 performance."
             )
-            for summary in _extract_finding_summaries(scan, limit=5):
-                suggestions.append(f"{language}: {summary}")
 
-    for target, result in report.get("performix_analyses", {}).items():
-        if not isinstance(result, dict):
-            continue
-        status = result.get("status", "unknown")
+    if report.get("performix_analyses"):
         suggestions.append(
-            f"Review Performix `{PERFORMIX_RECIPE}` results for `{target}` (status: {status})."
+            f"Review Performix `{PERFORMIX_RECIPE}` hotspots in the section above and prioritize the top sample consumers."
         )
-        rows = result.get("rows") or []
-        if isinstance(rows, list):
-            for row in rows[:3]:
-                if not isinstance(row, dict):
-                    continue
-                function_name = row.get("FUNCTION_NAME") or row.get("function_name") or "unknown"
-                pct = row.get("SAMPLE_PCT") or row.get("sample_pct") or row.get("percentage")
-                line = f"Performix hotspot: `{function_name}`"
-                if pct not in (None, ""):
-                    line += f" ({pct}% samples)"
-                suggestions.append(line)
 
     for entry in report.get("knowledge_base", []):
         results = entry.get("results")
@@ -308,8 +292,10 @@ def _render_markdown(report: dict[str, Any]) -> str:
                         continue
                     function_name = row.get("FUNCTION_NAME") or row.get("function_name") or "unknown"
                     pct = row.get("SAMPLE_PCT") or row.get("PERIODIC_SAMPLES_SELF_PERCENT")
-                    sample_text = f" — {pct}% samples" if pct not in (None, "") else ""
-                    lines.append(f"  - `{function_name}`{sample_text}")
+                    times = row.get("PERIODIC_SAMPLES_SELF")
+                    times_text = f" — {times} times" if times not in (None, "") else ""
+                    sample_text = f" — {float(pct):.2f}% samples" if pct not in (None, "") else ""
+                    lines.append(f"  - `{function_name}`{times_text}{sample_text}")
             summary = result.get("summary") or result.get("message")
             if summary:
                 lines.append(f"  - {str(summary)[:300]}")
