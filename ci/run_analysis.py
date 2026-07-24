@@ -307,7 +307,7 @@ def _render_markdown(report: dict[str, Any]) -> str:
                     if not isinstance(row, dict):
                         continue
                     function_name = row.get("FUNCTION_NAME") or row.get("function_name") or "unknown"
-                    pct = row.get("SAMPLE_PCT") or row.get("sample_pct") or row.get("percentage")
+                    pct = row.get("SAMPLE_PCT") or row.get("PERIODIC_SAMPLES_SELF_PERCENT")
                     sample_text = f" — {pct}% samples" if pct not in (None, "") else ""
                     lines.append(f"  - `{function_name}`{sample_text}")
             summary = result.get("summary") or result.get("message")
