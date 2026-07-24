@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -52,9 +53,11 @@ async def arm_mcp_session(
 ) -> AsyncIterator[ClientSession]:
     workspace = workspace or DEFAULT_WORKSPACE
     image = image or DEFAULT_IMAGE
+    docker_args = _docker_args(workspace, image)
+    print(f"[arm_mcp_client] {shlex.join(['docker', *docker_args])}", flush=True)
     server_params = StdioServerParameters(
         command="docker",
-        args=_docker_args(workspace, image),
+        args=docker_args,
     )
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
