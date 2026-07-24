@@ -1,5 +1,6 @@
 ci-output/
 build/
+ci-output/java-staging/
 __pycache__/
 *.pyc
 .venv/

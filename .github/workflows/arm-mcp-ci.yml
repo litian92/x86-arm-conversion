@@ -20,9 +20,15 @@ concurrency:
 
 env:
   ARM_MCP_IMAGE: armlimited/arm-mcp:latest
-  # Optional Performix SSH files on the runner (set as repository variables).
+  # Performix / APX settings (repository variables on the self-hosted runner).
   ARM_MCP_SSH_KEY_PATH: ${{ vars.ARM_MCP_SSH_KEY_PATH }}
   ARM_MCP_SSH_KNOWN_HOSTS_PATH: ${{ vars.ARM_MCP_SSH_KNOWN_HOSTS_PATH }}
+  ARM_MCP_APX_REMOTE_IP: ${{ vars.ARM_MCP_APX_REMOTE_IP }}
+  ARM_MCP_APX_REMOTE_USER: ${{ vars.ARM_MCP_APX_REMOTE_USER }}
+  ARM_MCP_APX_REMOTE_DIR: ${{ vars.ARM_MCP_APX_REMOTE_DIR }}
+  ARM_MCP_APX_JAVA_SECONDS: ${{ vars.ARM_MCP_APX_JAVA_SECONDS || '3' }}
+  ARM_MCP_SCAN_ROOT: code
+  ARM_MCP_JAVA_DIR: code/java
 
 jobs:
   detect:
@@ -30,8 +36,7 @@ jobs:
     runs-on: [self-hosted, lecomputing_li_tian]
     outputs:
       languages: ${{ steps.detect.outputs.languages }}
-      has_dockerfile: ${{ steps.detect.outputs.has_dockerfile }}
-      docker_images: ${{ steps.detect.outputs.docker_images }}
+      scan_root: ${{ steps.detect.outputs.scan_root }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,11 +72,18 @@ jobs:
       - name: Pull ARM MCP server image
         run: docker pull "$ARM_MCP_IMAGE"
 
+      - name: Prepare Java Performix on APX host
+        env:
+          WORKSPACE_ROOT: ${{ github.workspace }}
+        run: python ci/prepare_java_performix.py
+        continue-on-error: true
+
       - name: Run ARM MCP analysis
         env:
-          WORKSPACE: ${{ github.workspace }}
+          WORKSPACE_ROOT: ${{ github.workspace }}
+          WORKSPACE: ${{ github.workspace }}/${{ needs.detect.outputs.scan_root || 'code' }}
           LANGUAGES: ${{ needs.detect.outputs.languages }}
-          DOCKER_IMAGES: ${{ needs.detect.outputs.docker_images }}
+          ARM_MCP_APX_TARGETS: ci-output/performix-targets.json
         run: python ci/run_analysis.py
         timeout-minutes: 30
 
@@ -147,12 +159,20 @@ jobs:
       - name: Pull ARM MCP server image
         run: docker pull "$ARM_MCP_IMAGE"
 
+      - name: Prepare Java Performix on APX host
+        env:
+          WORKSPACE_ROOT: ${{ github.workspace }}
+          CI_OUTPUT_DIR: ci-output-ai
+        run: python ci/prepare_java_performix.py
+        continue-on-error: true
+
       - name: Run ARM MCP AI analysis
         env:
-          WORKSPACE: ${{ github.workspace }}
+          WORKSPACE_ROOT: ${{ github.workspace }}
+          WORKSPACE: ${{ github.workspace }}/${{ needs.detect.outputs.scan_root || 'code' }}
           LANGUAGES: ${{ needs.detect.outputs.languages }}
-          DOCKER_IMAGES: ${{ needs.detect.outputs.docker_images }}
           CI_OUTPUT_DIR: ci-output-ai
+          ARM_MCP_APX_TARGETS: ci-output-ai/performix-targets.json
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ARM_MCP_AI_API_KEY: ${{ secrets.ARM_MCP_AI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

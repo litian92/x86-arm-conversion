@@ -20,7 +20,6 @@ from llm.factory import create_provider, load_ai_config
 OUTPUT_DIR = Path(os.environ.get("CI_OUTPUT_DIR", "ci-output"))
 WORKSPACE = os.environ.get("WORKSPACE", os.getcwd())
 LANGUAGES = json.loads(os.environ.get("LANGUAGES", "[]"))
-DOCKER_IMAGES = json.loads(os.environ.get("DOCKER_IMAGES", "[]"))
 
 
 def _ensure_output_dir() -> None:
@@ -31,7 +30,6 @@ def _build_context() -> dict[str, Any]:
     return {
         "workspace": WORKSPACE,
         "languages": LANGUAGES,
-        "docker_images": DOCKER_IMAGES,
     }
 
 

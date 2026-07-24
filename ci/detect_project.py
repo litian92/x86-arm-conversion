@@ -16,7 +16,7 @@ except ImportError:
     yaml = None  # type: ignore[assignment]
 
 LANGUAGE_MARKERS: dict[str, list[str]] = {
-    "cpp": ["CMakeLists.txt", "Makefile", "*.cpp", "*.cc", "*.cxx", "*.hpp"],
+    "cpp": ["CMakeLists.txt", "Makefile", "*.c", "*.cpp", "*.cc", "*.cxx", "*.h", "*.hpp"],
     "python": ["pyproject.toml", "setup.py", "requirements.txt", "*.py"],
     "go": ["go.mod", "*.go"],
     "js": ["package.json", "*.js", "*.ts", "*.jsx", "*.tsx"],
@@ -53,14 +53,27 @@ def glob_exists(root: Path, pattern: str) -> bool:
     return (root / pattern).exists()
 
 
+def resolve_scan_root(root: Path, config: dict[str, Any]) -> Path:
+    """Return the directory migrate-ease / language detection should target."""
+    configured = config.get("scan_root") or os.environ.get("ARM_MCP_SCAN_ROOT") or ""
+    configured = str(configured).strip()
+    if not configured or configured in {".", "./"}:
+        return root
+    scan_root = (root / configured).resolve()
+    if not scan_root.is_dir():
+        raise FileNotFoundError(f"scan_root not found: {configured}")
+    return scan_root
+
+
 def detect_languages(root: Path, config: dict[str, Any]) -> list[str]:
     configured = config.get("languages")
     if configured:
         return [str(lang).lower() for lang in configured]
 
+    scan_root = resolve_scan_root(root, config)
     found: list[str] = []
     for language, markers in LANGUAGE_MARKERS.items():
-        if any(glob_exists(root, marker) for marker in markers):
+        if any(glob_exists(scan_root, marker) for marker in markers):
             found.append(language)
     return found or ["cpp"]
 
@@ -106,13 +119,19 @@ def main() -> None:
 
     root = Path(args.root).resolve()
     config = load_config(root)
+    scan_root = resolve_scan_root(root, config)
     languages = detect_languages(root, config)
     dockerfiles = find_dockerfiles(root)
     docker_images = extract_docker_images(root, config)
     build_commands = detect_build_commands(config)
+    try:
+        scan_root_rel = str(scan_root.relative_to(root)).replace("\\", "/")
+    except ValueError:
+        scan_root_rel = str(scan_root)
 
     result = {
         "languages": languages,
+        "scan_root": scan_root_rel,
         "has_dockerfile": bool(dockerfiles),
         "dockerfiles": [str(path.relative_to(root)) for path in dockerfiles],
         "docker_images": docker_images,
@@ -122,6 +141,7 @@ def main() -> None:
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as handle:
             handle.write(f"languages={json.dumps(languages)}\n")
+            handle.write(f"scan_root={scan_root_rel}\n")
             handle.write(f"has_dockerfile={'true' if result['has_dockerfile'] else 'false'}\n")
             handle.write(f"docker_images={json.dumps(docker_images)}\n")
 

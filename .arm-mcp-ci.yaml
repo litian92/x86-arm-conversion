@@ -2,6 +2,10 @@
 
 languages:
   - cpp
+  - java
 
-docker_images:
-  - debian:bookworm-slim
+# Performix profiles Java only. Sources under code/java/ are SCP'd to the APX
+# host and compiled there with javac before apx_recipe_run.
+performix:
+  recipe: code_hotspots
+  java_dir: code/java

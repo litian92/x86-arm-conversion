@@ -6,7 +6,7 @@ GitHub Actions workflow that runs [Arm MCP Server](https://developer.arm.com/ser
 
 | Job | Purpose |
 | --- | --- |
-| **Detect project** | Finds languages, Dockerfiles, and container base images |
+| **Detect project** | Finds languages under the configured scan root |
 | **ARM MCP analysis** | Runs Arm MCP tools via `armlimited/arm-mcp` Docker image |
 | **Post PR feedback** | Updates a single PR comment with migration and optimization guidance |
 | **ARM MCP AI analysis** _(optional)_ | LLM-driven tool orchestration when PR has the `arm-mcp-ai` label |
@@ -14,10 +14,9 @@ GitHub Actions workflow that runs [Arm MCP Server](https://developer.arm.com/ser
 
 ### Arm MCP tools used
 
-- **`migrate_ease_scan`** — scans C/C++, Python, Go, JavaScript, and Java for x86-specific code and migration blockers
-- **`check_image`** / **`skopeo`** — verifies container images support arm64
-- **`knowledge_base_search`** — pulls Arm optimization and migration guidance
-- **`mca`** — LLVM Machine Code Analyzer on object/assembly files when build artifacts exist in the repo
+- **`migrate_ease_scan`** — scans C/C++ and Java under `code/` for x86-specific code and migration blockers
+- **`knowledge_base_search`** — pulls Arm optimization and migration guidance for the scanned code
+- **`apx_recipe_run`** — Arm Performix `code_hotspots` on **Java only** (sources SCP'd to the APX host and compiled with `javac` there)
 
 ## Sample project: `vec_dot`
 
@@ -28,8 +27,7 @@ This repository includes a minimal C++ dot-product demo for local testing and mi
 | `CMakeLists.txt` | Cross-arch build (AVX2 on x86_64, NEON on arm64) |
 | `src/x86_simd.cpp` | x86 intrinsics (`immintrin.h`, `_mm256_*`) for **migrate-ease** findings |
 | `src/main.cpp` | Runnable demo + `--self-test` used by CTest |
-| `Dockerfile` | Multi-stage image for **check_image** / **skopeo** |
-| `.arm-mcp-ci.yaml` | Pins `cpp` scans and Docker images to inspect |
+| `.arm-mcp-ci.yaml` | Pins languages and Performix Java settings |
 
 ### Build locally (optional)
 
@@ -52,7 +50,7 @@ Building locally is optional; CI only runs Arm MCP analysis.
    .arm-mcp-ci.yaml.example
    ```
 
-2. Optionally create `.arm-mcp-ci.yaml` from the example to customize languages and container images.
+2. Optionally create `.arm-mcp-ci.yaml` from the example to customize languages and Performix settings.
 
 3. Open a pull request — the workflow runs automatically and posts a comment with migrate-ease findings and performance suggestions.
 
@@ -61,15 +59,18 @@ Building locally is optional; CI only runs Arm MCP analysis.
 Create `.arm-mcp-ci.yaml` in the repository root:
 
 ```yaml
+scan_root: code
+
 languages:
   - cpp
-  - go
+  - java
 
-docker_images:
-  - myorg/myapp:latest
+performix:
+  recipe: code_hotspots
+  java_dir: code/java
 ```
 
-Languages are auto-detected when omitted.
+When `scan_root` is set, Arm MCP mounts that directory as `/workspace` so migrate-ease only sees code under it. Languages are auto-detected under `scan_root` when `languages` is omitted.
 
 ## Local testing
 
@@ -86,8 +87,8 @@ python ci/detect_project.py --json
 
 ```bash
 docker pull armlimited/arm-mcp:latest
-export LANGUAGES='["cpp"]'
-export DOCKER_IMAGES='["debian:bookworm-slim"]'
+export LANGUAGES='["cpp","java"]'
+export WORKSPACE="$(pwd)/code"
 python ci/run_analysis.py
 cat ci-output/report.md
 ```
@@ -99,8 +100,8 @@ cp .arm-mcp-ai.yaml.example .arm-mcp-ai.yaml
 # Edit provider, model, and api_key_env
 
 export OPENAI_API_KEY=sk-...
-export LANGUAGES='["cpp"]'
-export DOCKER_IMAGES='["debian:bookworm-slim"]'
+export LANGUAGES='["cpp","java"]'
+export WORKSPACE="$(pwd)/code"
 python ci/ai_analysis.py
 cat ci-output/report.md
 ```
@@ -138,25 +139,41 @@ The workflow posts two separate PR comments: the standard scripted report and an
 - **`armlimited/arm-mcp`** image pulled at runtime (no API keys required for scripted mode)
 - **LLM API key** required only for AI mode (`ci/ai_analysis.py`)
 
-## Optional: Arm Performix profiling
+## Optional: Arm Performix profiling (Java)
 
-The **`apx_recipe_run`** tool (code hotspots, instruction mix) requires SSH access to a target machine with PMU counters. When configured, the Arm MCP container receives read-only mounts at `/run/keys/ssh_key.pem` and `/run/keys/known_hosts`.
+Performix runs **only against Java** under `code/java/`:
 
-SSH credentials are **files on the runner**, not repository secrets. Set two repository variables pointing to their paths on the self-hosted runner:
+1. `ci/prepare_java_performix.py` SCPs sources to the APX host
+2. Compiles them there with pre-installed `javac` (renaming files to match public class names when needed)
+3. `ci/run_analysis.py` calls `apx_recipe_run` with recipe `code_hotspots` and the remote `java -cp …` command
+
+C sources under `code/c/` are covered by migrate-ease / knowledge-base / MCA only — not Performix.
+
+Set these **repository variables** (paths are on the self-hosted runner; IP/user are for the APX machine):
 
 | Variable | Example |
 | --- | --- |
 | `ARM_MCP_SSH_KEY_PATH` | `/home/li_tian/.ssh/id_rsa` |
 | `ARM_MCP_SSH_KNOWN_HOSTS_PATH` | `/home/li_tian/.ssh/known_hosts` |
+| `ARM_MCP_APX_REMOTE_IP` | APX host IP |
+| `ARM_MCP_APX_REMOTE_USER` | SSH user on the APX host |
+| `ARM_MCP_APX_REMOTE_DIR` | Optional remote dir (default `/tmp/arm-mcp-java/<run-id>`) |
+| `ARM_MCP_APX_JAVA_SECONDS` | Optional workload duration (default `3`) |
 
-The workflow passes these through to `ci/arm_mcp_client.py`. When unset, analysis runs without SSH mounts (default behavior).
+The workflow mounts the SSH key / known_hosts into the Arm MCP container and passes IP/user into `apx_recipe_run`. When any of the four required variables are unset, Performix is skipped.
 
 Locally or on a runner shell:
 
 ```bash
 export ARM_MCP_SSH_KEY_PATH="$HOME/.ssh/id_rsa"
 export ARM_MCP_SSH_KNOWN_HOSTS_PATH="$HOME/.ssh/known_hosts"
-python ci/run_analysis.py   # or ci/ai_analysis.py
+export ARM_MCP_APX_REMOTE_IP="<apx-host-ip>"
+export ARM_MCP_APX_REMOTE_USER="$USER"
+export WORKSPACE_ROOT="$(pwd)"
+export WORKSPACE="$(pwd)/code"
+export LANGUAGES='["cpp","java"]'
+python ci/prepare_java_performix.py
+python ci/run_analysis.py
 ```
 
 See the [Arm MCP Server docs](https://github.com/arm/mcp#quick-start) for profiling host requirements.
