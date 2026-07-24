@@ -14,6 +14,22 @@ from mcp.client.stdio import stdio_client
 
 DEFAULT_IMAGE = os.environ.get("ARM_MCP_IMAGE", "armlimited/arm-mcp:latest")
 DEFAULT_WORKSPACE = os.environ.get("WORKSPACE", os.getcwd())
+SSH_KEY_ENV = "ARM_MCP_SSH_KEY_PATH"
+KNOWN_HOSTS_ENV = "ARM_MCP_SSH_KNOWN_HOSTS_PATH"
+CONTAINER_SSH_KEY = "/run/keys/ssh_key.pem"
+CONTAINER_KNOWN_HOSTS = "/run/keys/known_hosts"
+
+
+def _optional_ssh_volume_mounts() -> list[str]:
+    """Mount Performix SSH credentials when host paths are configured."""
+    args: list[str] = []
+    ssh_key_path = os.environ.get(SSH_KEY_ENV, "").strip()
+    known_hosts_path = os.environ.get(KNOWN_HOSTS_ENV, "").strip()
+    if ssh_key_path:
+        args.extend(["-v", f"{Path(ssh_key_path).resolve()}:{CONTAINER_SSH_KEY}:ro"])
+    if known_hosts_path:
+        args.extend(["-v", f"{Path(known_hosts_path).resolve()}:{CONTAINER_KNOWN_HOSTS}:ro"])
+    return args
 
 
 def _docker_args(workspace: str, image: str) -> list[str]:
@@ -24,6 +40,7 @@ def _docker_args(workspace: str, image: str) -> list[str]:
         "-i",
         "-v",
         f"{workspace_path}:/workspace",
+        *_optional_ssh_volume_mounts(),
         image,
     ]
 

@@ -134,18 +134,32 @@ The workflow posts two separate PR comments: the standard scripted report and an
 
 ## Requirements
 
-- **Docker** on the analysis job runner (provided on `ubuntu-latest` GitHub-hosted runners)
+- **Docker** on the self-hosted runner (`lecomputing_li_tian`)
 - **`armlimited/arm-mcp`** image pulled at runtime (no API keys required for scripted mode)
 - **LLM API key** required only for AI mode (`ci/ai_analysis.py`)
 
 ## Optional: Arm Performix profiling
 
-The **`apx_recipe_run`** tool (code hotspots, instruction mix) requires SSH access to a target machine with PMU counters. This is not enabled by default in CI because it needs:
+The **`apx_recipe_run`** tool (code hotspots, instruction mix) requires SSH access to a target machine with PMU counters. When configured, the Arm MCP container receives read-only mounts at `/run/keys/ssh_key.pem` and `/run/keys/known_hosts`.
 
-- SSH private key and `known_hosts` mounted into the Arm MCP container
-- A reachable Arm64 host to profile
+SSH credentials are **files on the runner**, not repository secrets. Set two repository variables pointing to their paths on the self-hosted runner:
 
-To extend the workflow for Performix, add secrets and volume mounts following the [Arm MCP Server docs](https://github.com/arm/mcp#quick-start), then call `apx_recipe_run` from `ci/run_analysis.py`.
+| Variable | Example |
+| --- | --- |
+| `ARM_MCP_SSH_KEY_PATH` | `/home/li_tian/.ssh/id_rsa` |
+| `ARM_MCP_SSH_KNOWN_HOSTS_PATH` | `/home/li_tian/.ssh/known_hosts` |
+
+The workflow passes these through to `ci/arm_mcp_client.py`. When unset, analysis runs without SSH mounts (default behavior).
+
+Locally or on a runner shell:
+
+```bash
+export ARM_MCP_SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+export ARM_MCP_SSH_KNOWN_HOSTS_PATH="$HOME/.ssh/known_hosts"
+python ci/run_analysis.py   # or ci/ai_analysis.py
+```
+
+See the [Arm MCP Server docs](https://github.com/arm/mcp#quick-start) for profiling host requirements.
 
 ## Workflow permissions
 

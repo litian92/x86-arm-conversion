@@ -20,11 +20,14 @@ concurrency:
 
 env:
   ARM_MCP_IMAGE: armlimited/arm-mcp:latest
+  # Optional Performix SSH files on the runner (set as repository variables).
+  ARM_MCP_SSH_KEY_PATH: ${{ vars.ARM_MCP_SSH_KEY_PATH }}
+  ARM_MCP_SSH_KNOWN_HOSTS_PATH: ${{ vars.ARM_MCP_SSH_KNOWN_HOSTS_PATH }}
 
 jobs:
   detect:
     name: Detect project
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lecomputing_li_tian]
     outputs:
       languages: ${{ steps.detect.outputs.languages }}
       has_dockerfile: ${{ steps.detect.outputs.has_dockerfile }}
@@ -48,7 +51,7 @@ jobs:
   arm-mcp-analysis:
     name: ARM MCP analysis
     needs: detect
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lecomputing_li_tian]
     steps:
       - uses: actions/checkout@v4
 
@@ -84,7 +87,7 @@ jobs:
     name: Post PR feedback
     needs: [arm-mcp-analysis]
     if: always() && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lecomputing_li_tian]
     steps:
       - uses: actions/checkout@v4
 
@@ -117,7 +120,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'arm-mcp-ai')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lecomputing_li_tian]
     steps:
       - uses: actions/checkout@v4
 
@@ -173,7 +176,7 @@ jobs:
       always() &&
       github.event_name == 'pull_request' &&
       needs.arm-mcp-ai-analysis.result != 'skipped'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, lecomputing_li_tian]
     steps:
       - uses: actions/checkout@v4
 
